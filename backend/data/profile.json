@@ -1,0 +1,16 @@
+{
+  "name": "dev",
+  "level": 1,
+  "exp": 0,
+  "exp_to_next_level": 100,
+  "gold": 500,
+  "attributes": {
+    "strength": 1,
+    "intelligence": 1,
+    "charisma": 1,
+    "endurance": 1,
+    "creativity": 1
+  },
+  "locations": [],
+  "achievements": []
+}

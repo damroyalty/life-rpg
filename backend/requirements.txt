@@ -1,0 +1,6 @@
+flask
+flask-cors
+pyinstaller
+pandas
+python-dotenv
+dnspython==2.4.2
