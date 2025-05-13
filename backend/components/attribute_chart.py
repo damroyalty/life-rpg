@@ -8,21 +8,21 @@ class AttributeChart(ft.Container):
         self.height = 200
         self.content = self.build()
         self.padding = 10
-        self.bgcolor = ft.colors.with_opacity(0.3, "#1e293b")  # semi-transparent
+        self.bgcolor = ft.Colors.with_opacity(0.3, "#1e293b")  # semi-transparent
         self.border_radius = 12
-        self.border = ft.border.all(1, ft.colors.with_opacity(0.1, "white"))
+        self.border = ft.border.all(1, ft.Colors.with_opacity(0.1, "white"))
         self.shadow = ft.BoxShadow(
             spread_radius=1,
             blur_radius=15,
-            color=ft.colors.with_opacity(0.2, "black"),
+            color=ft.Colors.with_opacity(0.2, "black"),
             offset=ft.Offset(0, 0),
         )
         self.gradient = ft.LinearGradient(
             begin=ft.alignment.top_left,
             end=ft.alignment.bottom_right,
             colors=[
-                ft.colors.with_opacity(0.1, "#1e293b"),
-                ft.colors.with_opacity(0.2, "#0f172a"),
+                ft.Colors.with_opacity(0.1, "#1e293b"),
+                ft.Colors.with_opacity(0.2, "#0f172a"),
             ],
         )
     
@@ -44,10 +44,12 @@ class AttributeChart(ft.Container):
                     ft.Column([
                         ft.Row([
                             ft.Text(name.capitalize(), width=100),
-                            ft.Tooltip(
+                            ft.Container(
+                                content=ft.Icon(ft.Icons.INFO_OUTLINE, size=15),
+                                tooltip=ft.Tooltip(
                                 message=desc,
-                                content=ft.Icon(ft.icons.INFO_OUTLINE, size=15)
                             )
+                        )
                         ]),
                         ft.Stack([
                             ft.Container(
@@ -60,8 +62,7 @@ class AttributeChart(ft.Container):
                                 width=200 * (self.attributes.get(name, 0)/max_value),
                                 height=20,
                                 bgcolor=self._get_attribute_color(name),
-                                border_radius=10,
-                                animate=ft.animation.Animation(300, "easeOut")
+                                border_radius=10
                             ),
                             ft.Text(
                                 str(self.attributes.get(name, 0)),

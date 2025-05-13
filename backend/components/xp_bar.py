@@ -7,17 +7,17 @@ class XPBar(ft.Container):
         self.player = player
         self.padding = 20
         self.margin = 10
-        self.bgcolor = ft.colors.with_opacity(0.2, "#1e293b")
+        self.bgcolor = ft.Colors.with_opacity(0.2, "#1e293b")
         self.border_radius = 16
-        self.border = ft.border.all(1, ft.colors.with_opacity(0.1, "white"))
+        self.border = ft.border.all(1, ft.Colors.with_opacity(0.1, "white"))
         self.shadow = ft.BoxShadow(
             spread_radius=1,
             blur_radius=20,
-            color=ft.colors.with_opacity(0.3, "black"),
+            color=ft.Colors.with_opacity(0.3, "black"),
             offset=ft.Offset(0, 4),
         )
         self.content = self.build()
-    
+
     def build(self):
         progress = self.player.xp / self.player.xp_to_next_level() if self.player.xp_to_next_level() > 0 else 0
         return ft.Column(
@@ -29,7 +29,7 @@ class XPBar(ft.Container):
                         ft.Container(
                             width=400,
                             height=24,
-                            bgcolor=ft.colors.with_opacity(0.3, "#334155"),
+                            bgcolor=ft.Colors.with_opacity(0.3, "#334155"),
                             border_radius=12
                         ),
                         ft.Container(
@@ -40,8 +40,8 @@ class XPBar(ft.Container):
                                 end=ft.alignment.center_right,
                                 colors=["#f59e0b", "#f97316"]  # amber gradient
                             ),
-                            border_radius=12,
-                            animate=ft.animation.Animation(500, "easeOut")
+                            border_radius=12
+                            # removed animate cause it's causing a error
                         ),
                         ft.Text(
                             f"{self.player.xp}/{self.player.xp_to_next_level()} XP",
