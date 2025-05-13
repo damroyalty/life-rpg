@@ -60,6 +60,5 @@ class RewardsScreen(ft.Container):
     def _purchase(self, reward):
         if self.player.gold >= reward["cost"]:
             self.player.gold -= reward["cost"]
-            # adds reward to inventory
             self.content = self.build()
             self.update()

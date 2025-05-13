@@ -23,7 +23,7 @@ class SettingsScreen(ft.Container):
                         title=ft.Text("Dark Mode"),
                         trailing=self.dark_mode_switch,
                     ),
-                    bgcolor=ft.colors.SURFACE_VARIANT,
+                    bgcolor=ft.Colors.ON_SURFACE_VARIANT,
                     border_radius=8,
                     padding=5
                 ),
@@ -32,7 +32,7 @@ class SettingsScreen(ft.Container):
                         title=ft.Text("Notifications"),
                         trailing=ft.Switch(value=True),
                     ),
-                    bgcolor=ft.colors.SURFACE_VARIANT,
+                    bgcolor=ft.Colors.ON_SURFACE_VARIANT,
                     border_radius=8,
                     padding=5
                 ),
@@ -41,14 +41,14 @@ class SettingsScreen(ft.Container):
                         title=ft.Text("Sound Effects"),
                         trailing=ft.Switch(value=True),
                     ),
-                    bgcolor=ft.colors.SURFACE_VARIANT,
+                    bgcolor=ft.Colors.ON_SURFACE_VARIANT,
                     border_radius=8,
                     padding=5
                 ),
                 ft.Divider(),
                 ft.ElevatedButton(
                     "Reset Progress",
-                    icon=ft.icons.WARNING,
+                    icon=ft.Icons.WARNING,
                     color="red",
                     on_click=self._confirm_reset,
                     style=ft.ButtonStyle(
@@ -62,7 +62,6 @@ class SettingsScreen(ft.Container):
         )
 
     def _confirm_reset(self, e):
-        # implement a confirmation dialog here
         pass
 
     def toggle_theme_mode(self, e):

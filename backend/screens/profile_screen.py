@@ -40,7 +40,7 @@ class ProfileScreen(ft.Container):
                 ft.ElevatedButton(
                     "Level Up",
                     on_click=self.level_up,
-                    icon=ft.icons.STAR
+                    icon=ft.Icons.STAR
                 )
             ],
             spacing=20,

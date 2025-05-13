@@ -1,402 +1,557 @@
 import flet as ft
 import uuid
+import time
+from dataclasses import dataclass
+from typing import Optional, List, Dict, Tuple
+from enum import Enum, auto
 
-class MapScreen(ft.UserControl):
+class VisitType(Enum):
+    VACATION = auto()
+    HOME = auto()
+    WORK = auto()
+    ADVENTURE = auto()
+    FAMILY = auto()
+    EDUCATION = auto()
+    OTHER = auto()
+
+    @classmethod
+    def get_icon(cls, visit_type: 'VisitType') -> str:
+        icons = {
+            cls.VACATION: ft.Icons.UMBRELLA,
+            cls.HOME: ft.Icons.HOME,
+            cls.WORK: ft.Icons.WORK,
+            cls.ADVENTURE: ft.Icons.HIKING,
+            cls.FAMILY: ft.Icons.FAMILY_RESTROOM,
+            cls.EDUCATION: ft.Icons.SCHOOL,
+        }
+        return icons.get(visit_type, ft.Icons.PLACE)
+
+    @classmethod
+    def get_color(cls, visit_type: 'VisitType') -> str:
+        colors = {
+            cls.VACATION: ft.Colors.CYAN,
+            cls.HOME: ft.Colors.GREEN,
+            cls.WORK: ft.Colors.BLUE,
+            cls.ADVENTURE: ft.Colors.ORANGE,
+            cls.FAMILY: ft.Colors.PINK,
+            cls.EDUCATION: ft.Colors.PURPLE,
+        }
+        return colors.get(visit_type, ft.Colors.AMBER)
+
+    @classmethod
+    def from_string(cls, value: str) -> 'VisitType':
+        try:
+            return cls[value.upper()]
+        except KeyError:
+            return cls.OTHER
+
+@dataclass
+class Location:
+    id: str
+    name: str
+    description: str
+    x: float  # relative position (0-1)
+    y: float  # relative position (0-1)
+    visit_type: VisitType
+    visited: bool = False
+    created_at: float = 0.0  # timestamp for sorting
+    updated_at: float = 0.0  # timestamp for sorting
+
+class MapScreen(ft.Container):
+    MIN_SCALE = 0.5
+    MAX_SCALE = 3.0
+    DEFAULT_SCALE = 1.0
+    DEFAULT_MAP_WIDTH = 1000
+    DEFAULT_MAP_HEIGHT = 700
+    
     def __init__(self, player, page):
         super().__init__()
         self.player = player
         self.page = page
-        self.dialog_open = False
+        self.locations: Dict[str, Location] = {}
+        self.selected_location: Optional[Location] = None
+        self.scale = self.DEFAULT_SCALE
+        self.offset_x = 0.0
+        self.offset_y = 0.0
+        self.drag_start: Optional[Tuple[float, float]] = None
+        self.map_width = self.DEFAULT_MAP_WIDTH
+        self.map_height = self.DEFAULT_MAP_HEIGHT
+        self.initialized = False
+        self.pending_location_add = False
+        self.last_click_x = 0.5
+        self.last_click_y = 0.5
 
-
-        self.base_width = 800
-        self.base_height = 500
-        self.map_image_url = "https://images.photowall.com/products/84032/world-map-lotr-style-blue.jpg?h=699&q=85"
-
-        if not hasattr(player, "visited_locations"):
+        if not hasattr(self.player, 'visited_locations'):
             self.player.visited_locations = []
-
-        self.visited_locations = player.visited_locations
-        self.location_markers = ft.Stack()
-        self.visited_locations_column = ft.Column(spacing=6, scroll=ft.ScrollMode.AUTO, expand=True)
-        self.current_location_name = ft.Text("Click on the map to mark a location", italic=True, color=ft.colors.GREY_500)
-
-        # zoom and pan state
-        self.map_scale = 1.0
-        self.pan_offset_x = 0
-        self.pan_offset_y = 0
-        self.is_panning = False
-        self.start_drag = None
-
-        # pin types
-        self.pin_types = {
-            "city": {"icon": ft.icons.LOCATION_CITY, "color": ft.colors.BLUE},
-            "landmark": {"icon": ft.icons.LANDSCAPE, "color": ft.colors.GREEN},
-            "danger": {"icon": ft.icons.WARNING, "color": ft.colors.RED},
-            "mystery": {"icon": ft.icons.QUESTION_MARK, "color": ft.colors.PURPLE},
-            "treasure": {"icon": ft.icons.ATTACH_MONEY, "color": ft.colors.AMBER},
-            "home": {"icon": ft.icons.HOME, "color": ft.colors.PINK},
-            "work": {"icon": ft.icons.WORK, "color": ft.colors.ORANGE},
-        }
-        self.default_pin_type = "city"
-
-    def build(self):
-        self.map_image = ft.Image(
-            src=self.map_image_url,
-            width=self.base_width * self.map_scale,
-            height=self.base_height * self.map_scale,
-            fit=ft.ImageFit.CONTAIN,
-        )
-
-        self.map_container = ft.Container(
-            content=self.map_image,
-            left=self.pan_offset_x,
-            top=self.pan_offset_y,
-        )
-
-        # map and markers
-        self.main_stack = ft.Stack(
-            controls=[
-                self.map_container,
-                self.location_markers
-            ],
-            width=self.base_width,
-            height=self.base_height,
-        )
-
-        # gesture detector for the entire map area
-        self.gesture_detector = ft.GestureDetector(
-            mouse_cursor=ft.MouseCursor.MOVE,
-            on_pan_start=self.start_panning,
-            on_pan_update=self.do_panning,
-            on_pan_end=self.stop_panning,
-            on_tap_down=self.on_map_click,
-            content=self.main_stack,
-        )
-
-        # clip container for the map area
-        self.map_clip_container = ft.Container(
-            content=self.gesture_detector,
-            width=self.base_width,
-            height=self.base_height,
-            clip_behavior=ft.ClipBehavior.HARD_EDGE,
-            border_radius=ft.border_radius.all(10),
-            bgcolor=ft.colors.BLACK,
-        )
-
-        # visited locations panel
-        visited_container = ft.Container(
-            content=ft.Column([
-                ft.Text("Visited Locations", size=18, weight=ft.FontWeight.BOLD, color=ft.colors.CYAN_200),
-                self.visited_locations_column,
-                ft.ElevatedButton(
-                    text="Clear All Locations",
-                    icon=ft.icons.DELETE,
-                    icon_color=ft.colors.RED_400,
-                    color=ft.colors.RED_400,
-                    on_click=self.clear_all_locations,
-                ) if self.visited_locations else None,
-            ], spacing=10),
-            width=300,
-            padding=10,
-            bgcolor=ft.colors.with_opacity(0.04, ft.colors.GREY_900),
-            border_radius=ft.border_radius.all(8),
-            border=ft.border.all(1, ft.colors.with_opacity(0.15, ft.colors.GREY_700)),
-        )
-
-        # zoom controls
-        zoom_controls = ft.Row(
-            spacing=8,
-            controls=[
-                ft.IconButton(icon=ft.icons.ZOOM_IN, on_click=self.zoom_in, tooltip="Zoom In"),
-                ft.IconButton(icon=ft.icons.ZOOM_OUT, on_click=self.zoom_out, tooltip="Zoom Out"),
-                ft.IconButton(icon=ft.icons.CROP_FREE, on_click=self.reset_zoom, tooltip="Reset Zoom"),
-            ]
-        )
-
-        return ft.Row(
-            controls=[
-                ft.Column(
-                    controls=[
-                        ft.Text("🗺️ Places Traveled", size=24, weight=ft.FontWeight.BOLD, color=ft.colors.CYAN_100),
-                        zoom_controls,
-                        self.map_clip_container,
-                        self.current_location_name,
-                    ],
-                    spacing=16,
-                    expand=True
-                ),
-                visited_container
-            ],
-            spacing=20,
-            expand=True
-        )
+        
+        self.build_ui()
 
     def did_mount(self):
-        # migrate old locations to include absolute coordinates if missing
-        for loc in self.visited_locations:
-            if "absolute_x" not in loc:
-                loc["absolute_x"] = loc["x_pct"] * self.base_width / 100
-                loc["absolute_y"] = loc["y_pct"] * self.base_height / 100
-            if "pin_type" not in loc:
-                loc["pin_type"] = self.default_pin_type
-            if "id" not in loc:
-                loc["id"] = str(uuid.uuid4())
-        self.update_ui()
+        self.initialized = True
+        self.load_locations()
+        self.page.on_resize = self.handle_page_resize
 
-    def on_map_click(self, e):
-        if self.dialog_open or self.is_panning:
-            return
+    def will_unmount(self):
+        self.page.on_resize = None
 
-        if e.control != self.gesture_detector:
-            return
+    def handle_page_resize(self, e):
+        self.update_map_size()
 
-        true_x = (e.local_x - self.pan_offset_x) / self.map_scale
-        true_y = (e.local_y - self.pan_offset_y) / self.map_scale
+    def build_ui(self):
+        """Build the UI components of the map screen"""
+        self.create_map_components()
+        self.create_edit_components()
+        self.create_locations_list()
+        self.assemble_main_layout()
+
+    def create_map_components(self):
+        """Create all map-related UI components"""
+        self.map_image = ft.Image(
+            src="https://images.photowall.com/products/84032/world-map-lotr-style-blue.jpg?h=699&q=85",
+            fit=ft.ImageFit.CONTAIN,
+            repeat=ft.ImageRepeat.NO_REPEAT,
+        )
         
-        if not (0 <= true_x <= self.base_width and 0 <= true_y <= self.base_height):
-            return
+        self.map_container = ft.GestureDetector(
+            content=self.map_image,
+            on_scale_start=self.handle_scale_start,
+            on_scale_update=self.handle_scale_update,
+            on_pan_start=self.handle_pan_start,
+            on_pan_update=self.handle_pan_update,
+            on_tap=self.handle_map_tap,
+            on_double_tap=self.handle_double_tap,
+            on_long_press_end=self.handle_long_press,
+        )
         
-        self.open_location_dialog(true_x, true_y)
-
-    def open_location_dialog(self, true_x, true_y):
-        x_pct = (true_x / self.base_width) * 100
-        y_pct = (true_y / self.base_height) * 100
-
-        name_field = ft.TextField(label="Location Name", autofocus=True)
-        notes_field = ft.TextField(label="Notes (optional)", multiline=True)
+        self.map_stack = ft.Stack(
+            controls=[self.map_container],
+            expand=True,
+        )
         
-        pin_type_dropdown = ft.Dropdown(
-            label="Pin Type",
-            options=[ft.dropdown.Option(text=f"{config['icon']} {key.capitalize()}", key=key) 
-                    for key, config in self.pin_types.items()],
-            value=self.default_pin_type,
-            width=200
+        self.map_wrapper = ft.Container(
+            content=self.map_stack,
+            expand=7,
+            padding=10,
+            border=ft.border.all(1, ft.Colors.BLUE_200),
+            on_hover=self.handle_map_hover,
         )
 
-        def save_location(_):
-            name = name_field.value.strip()
-            notes = notes_field.value.strip()
-            if name:
-                new_location = {
-                    "id": str(uuid.uuid4()),
-                    "name": name, 
-                    "x_pct": x_pct, 
-                    "y_pct": y_pct, 
-                    "notes": notes,
-                    "absolute_x": true_x,
-                    "absolute_y": true_y,
-                    "pin_type": pin_type_dropdown.value
-                }
-                self.visited_locations.append(new_location)
-                self.close_dialog()
-                self.update_ui()
-
-        self.dialog_open = True
-        self.page.dialog = ft.AlertDialog(
-            modal=True,
-            title=ft.Text("New Location"),
-            content=ft.Column([
-                name_field,
-                notes_field,
-                pin_type_dropdown
-            ], tight=True),
-            actions=[ 
-                ft.TextButton("Save", on_click=save_location),
-                ft.TextButton("Cancel", on_click=lambda _: self.close_dialog()),
+    def create_edit_components(self):
+        self.location_name = ft.TextField(
+            label="Location Name",
+            expand=True,
+        )
+    
+        self.location_desc = ft.TextField(
+            label="Description",
+            multiline=True,
+            min_lines=3,
+            max_lines=5,
+            expand=True,
+        )
+    
+        self.visit_type = ft.Dropdown(
+            label="Visit Type",
+            options=[
+                ft.dropdown.Option(key=vt.name, text=vt.name.capitalize())
+                for vt in VisitType
             ],
+            value=VisitType.VACATION.name,
+            expand=True,
         )
-        self.page.dialog.open = True
-        self.page.update()
+    
+        self.visited_check = ft.Checkbox(label="Visited", value=True)
+    
+        self.save_button = ft.ElevatedButton(
+            "Save Location",
+            icon=ft.Icons.SAVE,
+            on_click=self.add_location_from_input,
+            color=ft.Colors.WHITE,
+            bgcolor=ft.Colors.BLUE_700,
+        )
+    
+        self.delete_button = ft.ElevatedButton(
+            "Delete Location",
+            icon=ft.Icons.DELETE,
+            on_click=self.confirm_delete,
+            color=ft.Colors.WHITE,
+            bgcolor=ft.Colors.RED_700,
+        )
+    
+        self.edit_panel = ft.Column(
+            controls=[
+                ft.Row([self.location_name, self.visit_type]),
+                self.location_desc,
+                ft.Row([
+                    self.visited_check,
+                    ft.Container(expand=True),
+                    self.save_button,
+                    self.delete_button,
+                ]),
+            ],
+            visible=False,
+            spacing=10,
+        )
 
-    def close_dialog(self):
-        self.dialog_open = False
-        self.page.dialog.open = False
-        self.page.update()
+    def create_locations_list(self):
+        """Create the locations list view"""
+        self.locations_list = ft.ListView(
+            expand=True,
+            spacing=10,
+            divider_thickness=1,
+        )
+        
+        self.search_field = ft.TextField(
+            label="Search locations",
+            on_change=self.update_locations_list,
+            prefix_icon=ft.Icons.SEARCH,
+            expand=True,
+        )
+        
+        self.sort_dropdown = ft.Dropdown(
+            label="Sort by",
+            options=[
+                ft.dropdown.Option("name"),
+                ft.dropdown.Option("visit_type"),
+                ft.dropdown.Option("visited"),
+                ft.dropdown.Option("recently_added"),
+            ],
+            value="name",
+            on_change=self.update_locations_list,
+            width=150,
+        )
 
-    def update_ui(self):
-        # diff pins
-        self.location_markers.controls = []
-        for loc in self.visited_locations:
-            pin_type = loc.get("pin_type", self.default_pin_type)
-            pin_config = self.pin_types.get(pin_type, self.pin_types[self.default_pin_type])
-            
-            marker = ft.Container(
-                left=loc.get("absolute_x", loc["x_pct"] * self.base_width / 100) * self.map_scale + self.pan_offset_x - 12,
-                top=loc.get("absolute_y", loc["y_pct"] * self.base_height / 100) * self.map_scale + self.pan_offset_y - 12,
+    def assemble_main_layout(self):
+        """Assemble all components into the main layout"""
+        self.content = ft.Row(
+            controls=[
+                self.map_wrapper,
+                ft.Column(
+                    controls=[
+                        ft.Text("Visited Locations", style=ft.TextThemeStyle.HEADLINE_MEDIUM),
+                        ft.Row([self.search_field, self.sort_dropdown]),
+                        ft.Divider(),
+                        self.locations_list,
+                        ft.Divider(),
+                        self.edit_panel,
+                    ],
+                    expand=3,
+                    scroll=ft.ScrollMode.AUTO,
+                    spacing=15,
+                ),
+            ],
+            expand=True,
+            spacing=15,
+        )
+
+    def update_map_size(self):
+        """Update the map dimensions based on current container size"""
+        if self.page and self.initialized:
+            self.map_width = self.map_wrapper.width or self.DEFAULT_MAP_WIDTH
+            self.map_height = self.map_wrapper.height or self.DEFAULT_MAP_HEIGHT
+            self.update_pin_positions()
+
+    def load_locations(self):
+        """Load sample locations or from persistent storage"""
+        self.update_map_size()
+        
+        sample_locations = [
+            Location(
+                id=str(uuid.uuid4()),
+                name="Home City",
+                description="Where I was born and raised",
+                x=0.5,
+                y=0.5,
+                visit_type=VisitType.HOME,
+                visited=True,
+                created_at=0.0,
+                updated_at=0.0,
+            ),
+            Location(
+                id=str(uuid.uuid4()),
+                name="Grand Canyon",
+                description="Amazing hiking vacation spot",
+                x=0.3,
+                y=0.4,
+                visit_type=VisitType.VACATION,
+                visited=True,
+                created_at=0.0,
+                updated_at=0.0,
+            ),
+        ]
+        
+        for loc in sample_locations:
+            self.add_location(loc)
+        
+        self.update_locations_list()
+
+    def add_location(self, location: Location):
+        """Add a location to the map and data store"""
+        self.locations[location.id] = location
+        self.add_pin_to_map(location)
+        
+        if location.visited and location.id not in self.player.visited_locations:
+            self.player.visited_locations.append(location.id)
+        self.update_locations_list()
+
+    def add_pin_to_map(self, location: Location):
+        if not all([self.map_width, self.map_height]):
+            return
+
+        existing_pin = next(
+            (c for c in self.map_stack.controls
+             if hasattr(c, 'data') and c.data == location.id),
+            None
+        )
+
+        if existing_pin:
+            existing_pin.content.name = VisitType.get_icon(location.visit_type)
+            existing_pin.content.color = VisitType.get_color(location.visit_type)
+            existing_pin.tooltip = f"{location.name}\n{location.description[:50]}..."
+        else:
+            pin = ft.Container(
                 content=ft.Icon(
-                    pin_config["icon"],
-                    size=26,
-                    color=pin_config["color"],
-                    tooltip=f"{loc['name']}\nType: {pin_type.capitalize()}\n{loc.get('notes', '')}"
+                    name=VisitType.get_icon(location.visit_type),
+                    color=VisitType.get_color(location.visit_type),
+                    size=24,
                 ),
-                on_click=lambda e, loc=loc: self.show_location_popup(loc),
-                data="marker",
+                left=location.x * self.map_width * self.scale + self.offset_x,
+                top=location.y * self.map_height * self.scale + self.offset_y,
+                on_click=lambda e, loc=location: self.select_location(loc),
+                tooltip=f"{location.name}\n{location.description[:50]}...",
+                data=location.id,
             )
-            self.location_markers.controls.append(marker)
+            self.map_stack.controls.append(pin)
 
-        # icon colors
-        self.visited_locations_column.controls = []
-        for loc in self.visited_locations:
-            pin_type = loc.get("pin_type", self.default_pin_type)
-            pin_config = self.pin_types.get(pin_type, self.pin_types[self.default_pin_type])
-            
-            btn = ft.TextButton(
-                content=ft.Row([
-                    ft.Icon(pin_config["icon"], color=pin_config["color"]),
-                    ft.Column([
-                        ft.Text(loc["name"], weight=ft.FontWeight.BOLD, color=ft.colors.CYAN_100),
-                        ft.Text(loc.get("notes", ""), size=12, italic=True, color=ft.colors.GREY_400),
-                    ], spacing=2),
-                ], spacing=10),
-                style=ft.ButtonStyle(
-                    padding=10,
-                    shape=ft.RoundedRectangleBorder(radius=6),
-                    overlay_color=ft.colors.with_opacity(0.1, ft.colors.CYAN),
+        if self.page:
+            self.map_stack.update()
+
+    def update_pin_positions(self):
+        """Update all pin positions based on current scale and offset"""
+        if not all([self.map_width, self.map_height]):
+            return
+        
+        for control in self.map_stack.controls:
+            if hasattr(control, 'data') and control.data in self.locations:
+                loc = self.locations[control.data]
+                control.left = loc.x * self.map_width * self.scale + self.offset_x
+                control.top = loc.y * self.map_height * self.scale + self.offset_y
+        
+        if self.page:
+            self.map_stack.update()
+
+    def select_location(self, location: Location):
+        """Select a location and update the edit panel"""
+        self.selected_location = location
+        self.location_name.value = location.name
+        self.location_desc.value = location.description
+        self.visit_type.value = location.visit_type.name
+        self.visited_check.value = location.visited
+        self.edit_panel.visible = True
+        self.update_locations_list()
+        self.page.update()
+
+    def update_locations_list(self, e=None):
+        """Update the locations list based on current filter and sort"""
+        self.locations_list.controls.clear()
+    
+        search_term = self.search_field.value.lower() if self.search_field.value else ""
+        sort_key = self.sort_dropdown.value
+    
+        
+        filtered_locations = [
+            loc for loc in self.locations.values()
+            if (search_term in loc.name.lower() or 
+                search_term in loc.description.lower())
+        ]
+    
+        if sort_key == "name":
+            filtered_locations.sort(key=lambda x: x.name)
+        elif sort_key == "visit_type":
+            filtered_locations.sort(key=lambda x: x.visit_type.name)
+        elif sort_key == "visited":
+            filtered_locations.sort(key=lambda x: not x.visited)
+        elif sort_key == "recently_added":
+            filtered_locations.sort(key=lambda x: x.created_at, reverse=True)
+    
+        for loc in filtered_locations:
+            item = ft.ListTile(
+                leading=ft.Icon(
+                    VisitType.get_icon(loc.visit_type),
+                    color=VisitType.get_color(loc.visit_type),
                 ),
-                on_click=lambda e, loc=loc: self.show_location_popup(loc),
+                title=ft.Text(loc.name),
+                subtitle=ft.Text(loc.description[:50] + "..." if len(loc.description) > 50 else loc.description),
+                on_click=lambda e, loc=loc: self.select_location(loc),
+                bgcolor=ft.Colors.GREY_800 if loc == self.selected_location else None,
+                trailing=ft.Icon(ft.Icons.CHECK_CIRCLE if loc.visited else ft.Icons.RADIO_BUTTON_UNCHECKED),
             )
-            self.visited_locations_column.controls.append(btn)
+            self.locations_list.controls.append(item)
+    
+        self.locations_list.update()
 
+    def add_location_from_input(self, e=None):
+        """Add a new location from the input fields"""
+        name = self.location_name.value
+        desc = self.location_desc.value
+        visit_type = VisitType.from_string(self.visit_type.value)
+        visited = self.visited_check.value
+
+        if not name.strip():
+            return
+
+        location = Location(
+            id=str(uuid.uuid4()),
+            name=name,
+            description=desc,
+            x=self.last_click_x,
+            y=self.last_click_y,
+            visit_type=visit_type,
+            visited=visited,
+            created_at=time.time(),
+            updated_at=time.time(),
+        )
+
+        self.add_location(location)
+        self.edit_panel.visible = False
         self.update()
 
-    def show_location_popup(self, location):
-        note_field = ft.TextField(
-            label="Notes", 
-            multiline=True, 
-            value=location.get("notes", ""),
-        )
-        
-        # pin type selector
-        pin_type = location.get("pin_type", self.default_pin_type)
-        pin_type_dropdown = ft.Dropdown(
-            label="Pin Type",
-            options=[ft.dropdown.Option(text=f"{config['icon']} {key.capitalize()}", key=key) 
-                    for key, config in self.pin_types.items()],
-            value=pin_type,
-            width=200
-        )
-
-        def save_location(_):
-            location["notes"] = note_field.value
-            location["pin_type"] = pin_type_dropdown.value
-            self.close_dialog()
-            self.update_ui()
-
-        def delete_location(_):
-            self.visited_locations.remove(location)
-            self.close_dialog()
-            self.update_ui()
-
-        def center_on_location(_):
-            self.pan_offset_x = -location["absolute_x"] * self.map_scale + self.base_width / 2
-            self.pan_offset_y = -location["absolute_y"] * self.map_scale + self.base_height / 2
-            self.update_zoom_and_pan()
-            self.close_dialog()
-
-        self.page.dialog = ft.AlertDialog(
-            modal=True,
-            title=ft.Row([
-                ft.Icon(self.pin_types[pin_type]["icon"], color=self.pin_types[pin_type]["color"]),
-                ft.Text(location["name"]),
-            ], spacing=10),
-            content=ft.Column([
-                ft.Text(f"Coordinates: {location['x_pct']:.1f}%, {location['y_pct']:.1f}%"),
-                note_field,
-                pin_type_dropdown
-            ], tight=True),
+    def confirm_delete(self, e=None):
+        """Show confirmation dialog for deletion"""
+        if not self.selected_location:
+            return
+            
+        def perform_delete(e):
+            self._perform_delete()
+            confirm_dialog.open = False
+            self.page.update()
+            
+        def cancel_delete(e):
+            confirm_dialog.open = False
+            self.page.update()
+    
+        confirm_dialog = ft.AlertDialog(
+            title=ft.Text("Confirm Delete"),
+            content=ft.Text(f"Are you sure you want to delete '{self.selected_location.name}'?"),
             actions=[
-                ft.TextButton("Center", on_click=center_on_location),
-                ft.TextButton("Delete", on_click=delete_location, style=ft.ButtonStyle(color=ft.colors.RED)),
-                ft.TextButton("Save", on_click=save_location),
-                ft.TextButton("Close", on_click=lambda _: self.close_dialog()),
+                ft.TextButton("Cancel", on_click=cancel_delete),
+                ft.TextButton("Delete", on_click=perform_delete, style=ft.ButtonStyle(color=ft.Colors.RED)),
             ],
+            actions_alignment=ft.MainAxisAlignment.END,
         )
-        self.page.dialog.open = True
+    
+        self.page.dialog = confirm_dialog
+        confirm_dialog.open = True
         self.page.update()
 
-    def show_pin_filter(self, e):
-        # pin checkboxes
-        pin_filters = []
-        for pin_type, config in self.pin_types.items():
-            pin_filters.append(
-                ft.Checkbox(
-                    label=f"{config['icon']} {pin_type.capitalize()}",
-                    value=True,
-                    data=pin_type,
-                    on_change=self.update_pin_filters
-                )
-            )
-
-        self.page.dialog = ft.AlertDialog(
-            title=ft.Text("Filter Pin Types"),
-            content=ft.Column(pin_filters, scroll=ft.ScrollMode.AUTO),
-            actions=[
-                ft.TextButton("Close", on_click=lambda _: self.close_dialog()),
-            ]
-        )
-        self.page.dialog.open = True
+    def _perform_delete(self):
+        """Actually perform the location deletion"""
+        if not self.selected_location:
+            return
+            
+        self.map_stack.controls = [
+            c for c in self.map_stack.controls 
+            if not hasattr(c, 'data') or c.data != self.selected_location.id
+        ]
+        
+        if self.selected_location.id in self.locations:
+            del self.locations[self.selected_location.id]
+        
+        if self.selected_location.id in self.player.visited_locations:
+            self.player.visited_locations.remove(self.selected_location.id)
+        
+        self.selected_location = None
+        self.edit_panel.visible = False
+        self.update_locations_list()
+        self.map_stack.update()
         self.page.update()
 
-    def update_pin_filters(self, e):
-        # filter pins
+    def handle_scale_start(self, e: ft.ScaleStartEvent):
+        """Handle the start of a scaling gesture"""
+        self.drag_start = self._get_event_coordinates(e)
+
+    def handle_scale_update(self, e: ft.ScaleUpdateEvent):
+        """Handle scaling (pinch zoom) updates"""
+        new_scale = max(self.MIN_SCALE, min(self.MAX_SCALE, self.scale * e.scale))
+        
+        if self.scale != new_scale:
+            x, y = self._get_event_coordinates(e)
+            focus_x = x - self.offset_x
+            focus_y = y - self.offset_y
+            self.offset_x -= focus_x * (new_scale / self.scale - 1)
+            self.offset_y -= focus_y * (new_scale / self.scale - 1)
+            self.scale = new_scale
+        
+        self.update_pin_positions()
+
+    def handle_pan_start(self, e: ft.DragStartEvent):
+        """Handle the start of a pan/drag gesture"""
+        self.drag_start = self._get_event_coordinates(e)
+
+    def handle_pan_update(self, e: ft.DragUpdateEvent):
+        """Handle pan/drag updates"""
+        if self.drag_start:
+            x, y = self._get_event_coordinates(e)
+            dx = x - self.drag_start[0]
+            dy = y - self.drag_start[1]
+            self.offset_x += dx
+            self.offset_y += dy
+            self.drag_start = (x, y)
+            self.update_pin_positions()
+
+    def handle_map_tap(self, e: ft.TapEvent):
+        """Handle map tap events"""
+        local_x = (e.local_x - self.offset_x) / (self.map_width * self.scale)
+        local_y = (e.local_y - self.offset_y) / (self.map_height * self.scale)
+
+        self.last_click_x = max(0, min(1, local_x))
+        self.last_click_y = max(0, min(1, local_y))
+
+        self.location_name.value = ""
+        self.location_desc.value = ""
+        self.visit_type.value = VisitType.VACATION.name
+        self.visited_check.value = False
+        self.edit_panel.visible = True
+        self.update()
+
+    def handle_double_tap(self, e: ft.TapEvent):
+        """Handle double tap (reset zoom)"""
+        self.scale = self.DEFAULT_SCALE
+        self.offset_x = 0.0
+        self.offset_y = 0.0
+        self.update_pin_positions()
+
+    def handle_long_press(self, e: ft.LongPressEndEvent):
+        """Handle long press (context menu)"""
         pass
 
-    def clear_all_locations(self, e):
-        self.visited_locations.clear()
-        self.update_ui()
+    def handle_map_hover(self, e: ft.HoverEvent):
+        """Handle map hover events (tooltip positioning)"""
+        pass
 
-    def update_zoom_and_pan(self):
-        """Update the map display based on current zoom and pan"""
-        max_pan_x = max(0, (self.base_width * self.map_scale - self.base_width) / 2)
-        max_pan_y = max(0, (self.base_height * self.map_scale - self.base_height) / 2)
+    def _get_event_coordinates(self, e) -> Tuple[float, float]:
+        """Extract coordinates from an event"""
+        return (
+            getattr(e, 'local_x', getattr(e, 'x', 0)),
+            getattr(e, 'local_y', getattr(e, 'y', 0)),
+        )
+
+    def _get_relative_coordinates(self, e) -> Tuple[float, float]:
+        """Convert event coordinates to relative map coordinates (0-1)"""
+        x, y = self._get_event_coordinates(e)
         
-        self.pan_offset_x = max(-max_pan_x, min(max_pan_x, self.pan_offset_x))
-        self.pan_offset_y = max(-max_pan_y, min(max_pan_y, self.pan_offset_y))
-
-        self.map_image.width = self.base_width * self.map_scale
-        self.map_image.height = self.base_height * self.map_scale
-        self.map_container.left = self.pan_offset_x
-        self.map_container.top = self.pan_offset_y
+        adjusted_x = (x - self.offset_x) / self.scale
+        adjusted_y = (y - self.offset_y) / self.scale
         
-        self.update_ui()
-
-    def zoom_in(self, _):
-        old_scale = self.map_scale
-        self.map_scale = min(3.0, self.map_scale + 0.2)
-        zoom_factor = self.map_scale / old_scale
-        self.pan_offset_x *= zoom_factor
-        self.pan_offset_y *= zoom_factor
-        self.update_zoom_and_pan()
-
-    def zoom_out(self, _):
-        old_scale = self.map_scale
-        self.map_scale = max(0.5, self.map_scale - 0.2)
-        zoom_factor = self.map_scale / old_scale
-        self.pan_offset_x *= zoom_factor
-        self.pan_offset_y *= zoom_factor
-        self.update_zoom_and_pan()
-
-    def reset_zoom(self, _):
-        self.map_scale = 1.0
-        self.pan_offset_x = 0
-        self.pan_offset_y = 0
-        self.update_zoom_and_pan()
-
-    def start_panning(self, e):
-        self.is_panning = True
-        self.start_drag = (e.local_x, e.local_y)
-
-    def do_panning(self, e):
-        if self.is_panning and self.start_drag:
-            dx = e.local_x - self.start_drag[0]
-            dy = e.local_y - self.start_drag[1]  
-            self.pan_offset_x += dx
-            self.pan_offset_y += dy
-            self.start_drag = (e.local_x, e.local_y)
-            self.update_zoom_and_pan()
-
-    def stop_panning(self, e):
-        self.is_panning = False
-        self.start_drag = None
+        if self.map_width > 0 and self.map_height > 0:
+            rel_x = adjusted_x / self.map_width
+            rel_y = adjusted_y / self.map_height
+            
+            return max(0, min(1, rel_x)), max(0, min(1, rel_y))
         
+        return 0.5, 0.5
+
+    def update(self):
+        """Update the UI"""
+        if self.page:
+            self.page.update()
