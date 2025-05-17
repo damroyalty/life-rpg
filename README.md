@@ -1,4 +1,4 @@
-# Life-rpg
+# life-rpg
 eventually to be an app with the concept to game-ify your life, tasks, setbacks, habits(god or bad), rewards, etc.
 
 this is just a prototype/demo/conept
